@@ -1,6 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 
+const apiFetch = (url, options = {}) => {
+  const headers = new Headers(options.headers || {})
+  headers.set('Accept', 'application/json')
+  const token = localStorage.getItem('rental-bh-token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  return fetch(url, { ...options, headers })
+}
+
+const readJson = async response => {
+  const body = await response.text()
+  if (!body.trim()) throw new Error(`The API returned an empty response (HTTP ${response.status}). Check that Laravel is running on port 8124 and reload the Vite app.`)
+  try { return JSON.parse(body) } catch {
+    throw new Error(`The API returned an invalid response (HTTP ${response.status}). Restart Laravel and Vite, then try again.`)
+  }
+}
+
 const initial = {
   rooms: [
     { id: 1, room_number: 'Room 1', floor: '1', room_type: 'Shared', capacity: 5, monthly_rate: 5500, status: 'Occupied', description: 'Ground floor · Shared bath' },
@@ -101,8 +118,8 @@ function Login({ onLogin }) {
     try {
       if (mode === 'register') {
         if (password !== confirmPassword) throw new Error('The passwords do not match.')
-        const response = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name, email, password, role, contact_number: contactNumber, emergency_contact: emergencyContact }) })
-        const result = await response.json()
+        const response = await apiFetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name, email, password, role, contact_number: contactNumber, emergency_contact: emergencyContact }) })
+        const result = await readJson(response)
         if (!response.ok) throw new Error(result.message || 'Could not submit your account request.')
         setMode('login')
         setSuccess(result.message || 'Your request was sent. Wait for the administrator to approve it before signing in.')
@@ -110,10 +127,10 @@ function Login({ onLogin }) {
         setConfirmPassword('')
         return
       }
-      const response = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ email, password }) })
-      const result = await response.json()
+      const response = await apiFetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ email, password }) })
+      const result = await readJson(response)
       if (!response.ok) throw new Error(result.message || 'Sign in failed.')
-      onLogin(result.user)
+      localStorage.setItem('rental-bh-token', result.token); onLogin(result.user)
     } catch (failure) {
       setError(failure.message || 'Could not reach the local API. Start the backend and try again.')
     }
@@ -168,7 +185,7 @@ function App() {
 
   useEffect(() => {
     let active = true
-    fetch('/api/me', { credentials: 'include' }).then(response => response.ok ? response.json() : null).then(result => {
+    apiFetch('/api/me', { credentials: 'include' }).then(response => response.ok ? readJson(response) : null).then(result => {
       if (active && result?.user) { setCurrentUser(result.user); setPage(result.user.role === 'tenant' ? 'Tenant Portal' : 'Overview'); setAuthenticated(true) }
     }).catch(() => {}).finally(() => { if (active) setSessionLoading(false) })
     return () => { active = false }
@@ -177,7 +194,7 @@ function App() {
   useEffect(() => {
     if (!authenticated) return
     let active = true
-    const refresh = () => fetch('/api/notifications', { credentials: 'include' }).then(response => response.ok ? response.json() : null).then(counts => { if (active && counts) setNotificationCounts(counts) }).catch(() => {})
+    const refresh = () => apiFetch('/api/notifications', { credentials: 'include' }).then(response => response.ok ? readJson(response) : null).then(counts => { if (active && counts) setNotificationCounts(counts) }).catch(() => {})
     refresh()
     const timer = window.setInterval(refresh, 30000)
     return () => { active = false; window.clearInterval(timer) }
@@ -186,16 +203,16 @@ function App() {
   useEffect(() => {
     if (!authenticated || snapshotLoaded || !currentUser) return
     if (currentUser.role === 'tenant') return
-    fetch('/api/snapshot', { credentials: 'include' }).then(async response => {
+    apiFetch('/api/snapshot', { credentials: 'include' }).then(async response => {
       if (!response.ok) throw new Error('Could not load shared property records.')
-      return response.json()
+      return readJson(response)
     }).then(result => {
       if (result.data) {
         const migrated = migrateRooms({ ...initial, ...result.data })
         setData(migrated)
         localStorage.setItem('rental-bh-data', JSON.stringify(migrated))
       } else {
-        fetch('/api/snapshot', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data }) }).catch(() => {})
+        apiFetch('/api/snapshot', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data }) }).catch(() => {})
       }
       setSnapshotLoaded(true)
     }).catch(() => { setSnapshotLoaded(true); notify('Using the local copy; shared storage is unavailable.') })
@@ -203,7 +220,7 @@ function App() {
 
   useEffect(() => {
     if (!authenticated || !['admin', 'staff'].includes(currentUser?.role) || page !== 'Maintenance') return
-    fetch('/api/snapshot', { credentials: 'include' }).then(response => response.ok ? response.json() : null).then(result => {
+    apiFetch('/api/snapshot', { credentials: 'include' }).then(response => response.ok ? readJson(response) : null).then(result => {
       if (result?.data) { const migrated = migrateRooms({ ...initial, ...result.data }); setData(migrated); localStorage.setItem('rental-bh-data', JSON.stringify(migrated)) }
     }).catch(() => {})
   }, [authenticated, currentUser?.role, page])
@@ -211,20 +228,21 @@ function App() {
   useEffect(() => {
     if (!authenticated || !currentUser) return
     if (currentUser.role === 'tenant' && ['Tenant Portal', 'Maintenance'].includes(page)) {
-      fetch('/api/tenant-portal', { credentials: 'include' }).then(async response => {
-        const result = await response.json()
+      apiFetch('/api/tenant-portal', { credentials: 'include' }).then(async response => {
+        const result = await readJson(response)
         if (!response.ok) throw new Error(result.message || 'Could not load tenant information.')
         return result
       }).then(result => { setTenantPortal(result); setPortalError('') }).catch(error => setPortalError(error.message))
     }
     if (currentUser.role === 'admin' && page === 'Accounts') {
-      fetch('/api/users?per_page=100', { credentials: 'include' }).then(response => response.json()).then(result => setUserAccounts(result.data || [])).catch(() => notify('Could not load user accounts.'))
+      apiFetch('/api/users?per_page=100', { credentials: 'include' }).then(response => readJson(response)).then(result => setUserAccounts(result.data || [])).catch(() => notify('Could not load user accounts.'))
     }
   }, [authenticated, currentUser, page])
 
   function notify(message) { setNotice(message); window.setTimeout(() => setNotice(''), 2800) }
   const signOut = async () => {
-    await fetch('/api/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+    await apiFetch('/api/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+    localStorage.removeItem('rental-bh-token')
     setCurrentUser(null)
     setSnapshotLoaded(false)
     setTenantPortal(null)
@@ -235,7 +253,7 @@ function App() {
   const saveData = next => {
     setData(next)
     localStorage.setItem('rental-bh-data', JSON.stringify(next))
-    if (authenticated) fetch('/api/snapshot', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data: next }) }).then(response => { if (!response.ok) throw new Error('Save failed') }).catch(() => notify('Saved on this device; MySQL sync failed.'))
+    if (authenticated) apiFetch('/api/snapshot', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data: next }) }).then(response => { if (!response.ok) throw new Error('Save failed') }).catch(() => notify('Saved on this device; MySQL sync failed.'))
   }
   const updatePreferences = changes => setPreferences(current => {
     const next = { ...current, ...changes }
@@ -260,7 +278,7 @@ function App() {
 
   const removeRow = row => {
     if (!window.confirm(`Delete this ${configs[page].title.toLowerCase()} record?`)) return
-    if (page === 'Maintenance' && currentUser?.role === 'admin') fetch(`/api/maintenance/${row.id}`, { method: 'DELETE', credentials: 'include' }).catch(() => {})
+    if (page === 'Maintenance' && currentUser?.role === 'admin') apiFetch(`/api/maintenance/${row.id}`, { method: 'DELETE', credentials: 'include' }).catch(() => {})
     saveData({ ...data, [page.toLowerCase()]: data[page.toLowerCase()].filter(item => item.id !== row.id) })
     notify('Record deleted')
   }
@@ -342,8 +360,8 @@ function App() {
     const account = Object.fromEntries(form.entries())
     if (!account.tenant_id) delete account.tenant_id
     try {
-      const response = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(account) })
-      const result = await response.json()
+      const response = await apiFetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(account) })
+      const result = await readJson(response)
       if (!response.ok) throw new Error(result.message || Object.values(result.errors || {}).flat().join(' '))
       setUserAccounts(current => [result.data, ...current])
       formElement.reset()
@@ -352,8 +370,8 @@ function App() {
   }
   const approveAccount = async account => {
     try {
-      const response = await fetch(`/api/users/${account.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status: 'active' }) })
-      const result = await response.json()
+      const response = await apiFetch(`/api/users/${account.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status: 'active' }) })
+      const result = await readJson(response)
       if (!response.ok) throw new Error(result.message || 'Could not approve account.')
       setUserAccounts(accounts => accounts.map(item => item.id === account.id ? { ...item, status: 'active' } : item))
       setNotificationCounts(counts => ({ ...counts, account_requests: Math.max(0, counts.account_requests - 1) }))
@@ -365,14 +383,14 @@ function App() {
     const form = event.currentTarget
     const payload = Object.fromEntries(new FormData(form).entries())
     try {
-      const response = await fetch('/api/tenant-maintenance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload) })
-      const result = await response.json()
+      const response = await apiFetch('/api/tenant-maintenance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(payload) })
+      const result = await readJson(response)
       if (!response.ok) throw new Error(result.message || 'Could not submit request.')
       form.reset()
       notify('Maintenance request submitted')
       setNotificationCounts(counts => ({ ...counts, tenant_updates: counts.tenant_updates + 1 }))
-      const refresh = await fetch('/api/tenant-portal', { credentials: 'include' })
-      if (refresh.ok) setTenantPortal(await refresh.json())
+      const refresh = await apiFetch('/api/tenant-portal', { credentials: 'include' })
+      if (refresh.ok) setTenantPortal(await readJson(refresh))
     } catch (error) { notify(error.message) }
   }
 
@@ -422,7 +440,7 @@ function App() {
         </> : <>
           <div className="page-heading"><div><div className="eyebrow">PROPERTY MANAGEMENT</div><h1>{page}</h1><p>{pageDescriptions[page]}</p></div>{configs[page] && <button className="button button-primary" onClick={() => openAdd()}><span>＋</span> Add {configs[page].title.toLowerCase()}</button>}</div>
           <div className="panel table-panel data-panel"><div className="data-toolbar"><div className="search-box"><span>⌕</span><input className="search-input" placeholder={`Search ${page.toLowerCase()}...`} value={query} onChange={event => setQuery(event.target.value)} /></div><div className="toolbar-right">{page !== 'Agreements' && <select value={filter} onChange={event => setFilter(event.target.value)}><option>All</option>{(page === 'Rooms' ? ['Available', 'Occupied', 'Reserved', 'Under Maintenance'] : page === 'Payments' ? ['Paid', 'Partial'] : page === 'Maintenance' ? ['Pending', 'In Progress', 'Resolved'] : ['Active', 'Reserved', 'Ended']).map(item => <option key={item}>{item}</option>)}</select>}<span className="row-count">{tableRows.length} records</span></div></div>
-            {page === 'Payments' ? <PaymentsTable rows={tableRows} onDelete={removeRow} /> : <GenericTable page={page} rows={tableRows} data={data} onEdit={row => setModal({ record: row, seed: {} })} onDelete={removeRow} onStatus={(row, status) => { const key = page.toLowerCase(); const resolvedAt = status === 'Resolved' ? today : ''; saveData({ ...data, [key]: data[key].map(item => item.id === row.id ? { ...item, status, resolved_at: resolvedAt } : item) }); fetch(`/api/maintenance/${row.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status, resolved_at: resolvedAt || null }) }).catch(() => {}); if (row.status === 'Pending') setNotificationCounts(counts => ({ ...counts, maintenance: Math.max(0, counts.maintenance - 1) })); notify('Request status updated') }} />}
+            {page === 'Payments' ? <PaymentsTable rows={tableRows} onDelete={removeRow} /> : <GenericTable page={page} rows={tableRows} data={data} onEdit={row => setModal({ record: row, seed: {} })} onDelete={removeRow} onStatus={(row, status) => { const key = page.toLowerCase(); const resolvedAt = status === 'Resolved' ? today : ''; saveData({ ...data, [key]: data[key].map(item => item.id === row.id ? { ...item, status, resolved_at: resolvedAt } : item) }); apiFetch(`/api/maintenance/${row.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ status, resolved_at: resolvedAt || null }) }).catch(() => {}); if (row.status === 'Pending') setNotificationCounts(counts => ({ ...counts, maintenance: Math.max(0, counts.maintenance - 1) })); notify('Request status updated') }} />}
             {tableRows.length === 0 && <div className="empty-state"><div>⌕</div><strong>No {page.toLowerCase()} found</strong><span>Try changing your search or add a new record.</span></div>}
             <div className="table-footer"><span>Showing <strong>{tableRows.length ? 1 : 0}–{tableRows.length}</strong> of <strong>{tableRows.length}</strong> records</span><div><button disabled>← Previous</button><button className="page-number">1</button><button disabled>Next →</button></div></div>
           </div><div className="dashboard-footer"><span>Vinas Tres Marias Boarding House</span><span>All data saved automatically</span></div>

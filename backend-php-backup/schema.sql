@@ -57,3 +57,4 @@ CREATE TABLE IF NOT EXISTS property_snapshots (
 
 INSERT IGNORE INTO users(name,email,password,role) VALUES
 ('Paul Sobrio','paulsobrio@gmail.com','$2y$12$AZe0iza47ee5j8iOo6dzV.5nGGvT5tIuvVH6yYUHF6B.8uoHDAKRm','admin');
+

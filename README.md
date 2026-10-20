@@ -1,39 +1,44 @@
 # Vinas Tres Marias Boarding House System
 
-A responsive rental property system built with React, Vite, a PHP API, and MySQL. Manage rooms, tenants, rental agreements, payments, maintenance requests, and rental summaries.
+React and Vite frontend with a Laravel 12, Sanctum, and MySQL backend.
 
-## Demo sign in
+## Folders
 
-- Email: `paulsobrio@gmail.com`
-- Password: `sobrio123`
-
-Staff demo: `staff.demo@vinas.test` / `StaffDemo2026!`  
-Tenant demo: `tenant.sofia@vinas.test` / `TenantDemo2026!` (linked to Sofia Reyes)
+- `frontend/` contains the React user interface.
+- `backend/` contains the Laravel API and database migrations.
+- `backend-php-backup/` preserves the previous PHP API for reference.
 
 ## Run locally with XAMPP
 
-```bash
-npm install
-npm run api
-```
+1. Start **MySQL** in XAMPP. In phpMyAdmin, create a database named `rental_bh_laravel` using `utf8mb4`. This keeps the previous PHP database (`rental_bh_system`) untouched.
+2. In a terminal at the project root, install the API dependencies and prepare Laravel:
 
-In another terminal:
+   ```powershell
+   cd backend
+   composer install
+   Copy-Item .env.example .env
+   php artisan key:generate
+   php artisan migrate --seed
+   cd ..
+   ```
 
-```bash
-npm run dev
-```
+3. Start the API and frontend in separate terminals from the project root:
 
-Import `backend/schema.sql` into XAMPP MySQL first. Open the local address printed by Vite. Backend setup and API details are in [backend/README.md](backend/README.md).
+   ```powershell
+   npm run api
+   ```
 
-## Features
+   ```powershell
+   npm install
+   npm run dev
+   ```
 
-- Dashboard summaries for rooms, tenants, collections, and outstanding balances
-- Create, update, delete, search, and filter room, tenant, agreement, payment, and maintenance records
-- Update maintenance requests through Pending, In Progress, and Resolved
-- Export a tenant rental summary as CSV
-- Settings for dark mode, compact tables, dashboard maintenance reminders, and JSON data backups
-- Role-specific admin, staff, and tenant navigation; staff and tenant sign-up requests require administrator approval
-- Responsive navigation and layouts for desktop and mobile screens
+4. Open the Vite address shown in the terminal. API requests are proxied to Laravel at `127.0.0.1:8124`.
 
-Authentication now uses the local PHP API and MySQL session-backed accounts. The proposal specifies Laravel/Sanctum; Composer could not download Laravel in this environment, so the available implementation uses PHP's built-in server and XAMPP MySQL. The current UI stores its complete workspace snapshot in MySQL, while the separate relational API endpoints are available for migrating each screen to normalized records. The UI still needs tenant-specific pages and role-based navigation before it fully matches the proposal.
-# Vinas_Tres_Marias_Boarding_House_System
+## Initial administrator
+
+The local admin account is `paulsobrio@gmail.com` / `sobrio123`.
+
+Staff and tenant registrations are pending until an administrator approves them. The administrator can also create accounts in **User accounts**. Tenant access needs a linked tenant profile and room assignment.
+
+See [backend/README.md](backend/README.md) for API and data notes. This project has been prepared for local XAMPP use; it is not configured for public production hosting.

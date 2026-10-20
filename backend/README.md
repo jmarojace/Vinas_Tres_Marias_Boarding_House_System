@@ -1,18 +1,31 @@
-# Local API setup
+# Laravel API
 
-This repo uses a small PHP API with MySQL so it can run with the installed XAMPP tools without downloading Composer packages.
+This is a Laravel 12 API using Sanctum bearer tokens, adapted from the structure of the supplied student document portal repository. Its document-request code is not included; the API here serves boarding-house users and property records.
 
-1. Start **Apache** and **MySQL** in XAMPP Control Panel.
-2. Import `schema.sql`, then `seed.sql`, into the local MySQL server. The database `rental_bh_system`, demo owner account, and sample records are created by these scripts.
-3. From the project root, run `npm run api` in a terminal. The API listens on `http://127.0.0.1:8123`.
-4. In another terminal, run `npm run dev` and open the Vite URL.
+## Setup
 
-Demo logins: owner `paulsobrio@gmail.com` / `sobrio123`; staff `staff.demo@vinas.test` / `StaffDemo2026!`; tenant Sofia `tenant.sofia@vinas.test` / `TenantDemo2026!`. These are local demonstration accounts. Change them before using real records. The default database connection is XAMPP's `root` account with no password. Set `DB_HOST`, `DB_NAME`, `DB_USER`, and `DB_PASS` before launching PHP if your MySQL credentials differ.
+Create the `rental_bh_laravel` MySQL database in XAMPP, then from this folder run:
 
-After signing in as the owner, open **User accounts** to create staff logins and tenant logins. A tenant login can be linked to one of the listed tenant records, or the form can create a linked tenant profile using a phone number. The tenant will then see only their own agreement, room, payments, and maintenance requests in **My home**. Staff accounts see day-to-day property pages; only admins see reports, settings, and account management.
+```powershell
+composer install
+Copy-Item .env.example .env
+php artisan key:generate
+php artisan migrate --seed
+php artisan serve --host=127.0.0.1 --port=8124
+```
 
-The login screen also has a **Create an account** link for self-registration. Applicants can request only a tenant or staff role; they cannot create an admin. Requests remain pending until an admin approves them on **User accounts**. Tenant sign-ups create a tenant profile but still need a room agreement assigned before rental details and maintenance submission are available.
+Configure `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD` in `.env` for your MySQL instance. Laravel uses its own database name so it will not collide with your older PHP database `rental_bh_system`. Update the `SEED_ADMIN_*` values before seeding if needed.
 
-The API provides session login/logout/current-user endpoints, role checks for admin/staff/tenant, CRUD endpoints for rooms, tenants, rental agreements, payments, maintenance requests, user accounts and optional charges, paginated searchable lists, validation errors, and a dashboard endpoint that calculates rent balances by agreement and payment period. The current React demo also syncs its complete workspace snapshot to MySQL, so its existing screens share data between sessions and devices.
+## API
 
-This is a local capstone implementation, not a hardened public deployment. It uses PHP sessions rather than Laravel Sanctum, and MySQL rather than SQLite. The API source is `index.php`; `schema.sql` defines relational foreign keys and data tables.
+- Public: `POST /api/login`, `POST /api/register`
+- Signed in: `POST /api/logout`, `GET /api/me`, `GET /api/notifications`
+- Admin/staff: `GET|PUT /api/snapshot`, `PATCH /api/maintenance/{id}`
+- Admin: `GET|POST /api/users`, `PATCH /api/users/{id}`, `DELETE /api/maintenance/{id}`
+- Tenant: `GET /api/tenant-portal`, `POST /api/tenant-maintenance`
+
+Login returns a Sanctum personal access token. The React app stores it locally and sends it in the `Authorization: Bearer` header. Roles are enforced on API routes as well as in the interface.
+
+## Data
+
+Users and Sanctum tokens use relational tables. The current UI's rooms, tenant profiles, rental agreements, payments, and maintenance list are stored as a shared JSON property snapshot to preserve the existing interface and allow staff and admin to work from the same records. Tenant portal views and submitted maintenance requests use that snapshot. Move-in, room, agreement, and payment data can be normalized into dedicated tables in a later migration without changing the login setup.

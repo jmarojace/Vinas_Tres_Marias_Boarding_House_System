@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "api": "php -S 127.0.0.1:8123 -t backend backend/router.php",
+    "api": "php backend/artisan serve --host=127.0.0.1 --port=8124",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
